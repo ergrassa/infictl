@@ -1,14 +1,27 @@
+import logging
+
 from textual.app import App
-from textual.widgets import Label, Footer, OptionList
+from textual.widgets import Footer, OptionList
+from textual import log
 
 from app.api import get_workspaces
 
 
+logging.basicConfig(
+  level=logging.DEBUG,
+  format='%(name)s - %(levelname)s - %(message)s'
+)
+
+
 class WorkspaceList(OptionList):
-  def compose(self):
-    ws = await get_workspaces()
-    for workspace in ws:
-      yield Label(f"{workspace['name']} ({workspace['id']})")
+  async def on_mount(self) -> None:
+    try:
+      workspaces = await get_workspaces()
+      for ws in workspaces:
+        self.add_option(f"{ws['name']} ({ws['id']})")
+    except Exception as e:
+      log(f"Failed to load workspaces: {e}")
+      self.add_option("⚠️ Failed to load workspaces")
 
 
 class InfictlApp(App[None]):
@@ -21,6 +34,6 @@ class InfictlApp(App[None]):
     yield Footer()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
   app = InfictlApp()
   app.run()
