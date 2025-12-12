@@ -1,0 +1,15 @@
+workspace_name = "yellow"
+workspace_slug = "grey50"
+
+env_name = "cyan"
+env_slug = "grey50"
+
+folder_name = "bright_yellow"
+folder_count = "white"
+folder_empty = "dim"
+
+info = "grey50"
+error = "red"
+
+key = "black on white"
+key_padding = 'space'

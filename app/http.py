@@ -24,3 +24,14 @@ async def get(path, params=None):
 async def post(path, data, params=None):
   response = await api.post(path, json=data, headers=headers, params=params)
   return response
+
+
+async def delete(path, data=None, params=None):
+  response = await api.request('DELETE', path, data=data, headers=headers, params=params)
+  return response
+
+
+async def patch(path, data, params=None):
+  response = await api.patch(path, json=data, headers=headers, params=params)
+  return response
+
