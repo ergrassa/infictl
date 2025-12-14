@@ -196,3 +196,30 @@ async def update_secrets_bulk(
     return {}
 
 
+async def delete_secrets_bulk(
+  workspace_id,
+  environment_slug,
+  secrets_path,
+  secrets_keys: list
+  ):
+  url = '/api/v3/secrets/batch/raw'
+  secrets_fmt = [
+    {
+      'secretKey': k
+    }
+    for k in secrets_keys
+  ]
+  data = {
+    'workspaceId': workspace_id,
+    'environment': environment_slug,
+    'secretPath': secrets_path,
+    'secrets': secrets_fmt
+  }
+  try:
+    response = await delete(url, data=data)
+    response.raise_for_status()
+    return response.json()
+  except (RequestError, HTTPStatusError, ValueError, TypeError, KeyError) as e:
+    logging.error(f"Failed to update secrets: {e}")
+    return {}
+

@@ -27,7 +27,7 @@ async def post(path, data, params=None):
 
 
 async def delete(path, data=None, params=None):
-  response = await api.request('DELETE', path, data=data, headers=headers, params=params)
+  response = await api.request('DELETE', path, json=data, headers=headers, params=params)
   return response
 
 

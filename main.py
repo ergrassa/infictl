@@ -146,6 +146,7 @@ class SecretsScreen(Screen):
     ('e', 'allow_edit', 'Allow edit'),
     ('enter', 'edit_value', 'Edit value'),
     ('s', 'save', 'Save'),
+    ('r', 'redraw_table', 'Redraw table'),
     ('v', 'noop', 'Noop'),
   ]
 
@@ -176,6 +177,7 @@ class SecretsScreen(Screen):
     esc_key = key('Esc', style_override=key_style)
     e_key = key('e', style_override=key_style)
     s_key = key('s', style_override=key_style)
+    r_key = key('r', style_override=key_style)
     enter_key = key('Enter', style_override=key_style, literal=True)
 
     yield Static(
@@ -185,7 +187,7 @@ class SecretsScreen(Screen):
     )
     # Add Ch column meaning (optional) to hint line, but keep hotkeys.
     yield Static(
-      f'{esc_key} close   {e_key} allow edit   {enter_key} edit value   {s_key} save',
+      f'{esc_key} close   {e_key} allow edit   {enter_key} edit value   {s_key} save   {r_key} redraw',
       id='secrets-hint'
     )
     yield DataTable(id='secrets-table')
@@ -314,7 +316,6 @@ class SecretsScreen(Screen):
       hint = self.query_one('#secrets-hint', Static)
       hint.update('[dim]No changes to save[/]')
 
-      # Restore the hotkey hint shortly after so it doesn't "stick"
       self.set_timer(
         1.5,
         lambda: self.app.call_after_refresh(
@@ -328,6 +329,51 @@ class SecretsScreen(Screen):
       self._save_changes(to_create, to_update),
       exclusive=True
     )
+
+  def _rerender_from_state(self) -> None:
+    """Rebuild the DataTable from in-memory state.
+
+    This is the most compatible way to ensure the UI reflects edits immediately
+    across different Textual versions (avoids relying on update_cell_at APIs).
+    """
+    table = self.query_one('#secrets-table', DataTable)
+
+    table.clear(columns=True)
+    table.add_column('KEY', key='key')
+    table.add_column('VALUE', key='value')
+    table.add_column('✎', key='changed')
+    self._configure_table_columns()
+
+    self._row_index_by_key = {}
+
+    keys = sorted(self._current.keys(), key=lambda x: str(x).lower())
+    if not keys:
+      table.add_row('', 'No secrets in this folder', '')
+      table.refresh(layout=False)
+      return
+
+    for k in keys:
+      v = self._current.get(k, '')
+      value_str = str(v) if self._revealed else '<hidden>'
+      changed_mark = '*' if (k in self._changed) else ''
+      table.add_row(k, value_str, changed_mark, key=k)
+      try:
+        self._row_index_by_key[k] = table.row_count - 1
+      except Exception:
+        pass
+
+    try:
+      table.refresh(layout=False)
+    except Exception:
+      pass
+
+  def action_redraw_table(self):
+    """Temporary debug action: force redraw the DataTable from in-memory state."""
+    try:
+      self._rerender_from_state()
+      self._update_hint(reveal=self._revealed, saved=None)
+    except Exception:
+      self.app.bell()
 
   def on_data_table_cell_highlighted(self, event: DataTable.CellHighlighted) -> None:
     # If a temporary message was shown, restore the normal hint on interaction
@@ -425,6 +471,8 @@ class SecretsScreen(Screen):
       except Exception:
         pass
 
+    # (do not change anything else)
+
     self._revealed = reveal
     self._update_hint(reveal=reveal, saved=None)
 
@@ -435,6 +483,7 @@ class SecretsScreen(Screen):
     esc_key = key('Esc', style_override=key_style)
     e_key = key('e', style_override=key_style)
     s_key = key('s', style_override=key_style)
+    r_key = key('r', style_override=key_style)
     enter_key = key('Enter', style_override=key_style, literal=True)
 
     if saved is not None:
@@ -451,7 +500,8 @@ class SecretsScreen(Screen):
       hint.update(
         f'{esc_key} close   '
         f'{enter_key} edit value   '
-        f'{s_key} save'
+        f'{s_key} save   '
+        f'{r_key} redraw'
       )
     else:
       hint.update(
@@ -981,7 +1031,11 @@ class InfictlApp(App[None]):
     self.refresh_bindings()
 
   def _apply_secret_value_edit(self, key_name: str, value: str) -> None:
-    """Apply an edited secret value back into the active SecretsScreen and refresh the table."""
+    """Apply an edited secret value back into the active SecretsScreen and refresh the table.
+
+    Important: update the DataTable via call_after_refresh so the UI is guaranteed to repaint
+    immediately (otherwise DataTable updates may be lost during focus/screen transitions).
+    """
 
     def _retry(tries_left: int) -> None:
       screen = self.screen
@@ -1000,43 +1054,26 @@ class InfictlApp(App[None]):
       else:
         screen._changed.discard(key_name)
 
-      table = screen.query_one('#secrets-table', DataTable)
-
-      # Prefer updating by row index / column index for maximum compatibility.
-      row_index = screen._row_index_by_key.get(key_name)
-      if row_index is None:
+      def _apply_to_table() -> None:
         try:
-          for i in range(table.row_count):
-            row = table.get_row_at(i)
-            if row and len(row) >= 1 and str(row[0]) == str(key_name):
-              row_index = i
-              screen._row_index_by_key[key_name] = i
-              break
+          screen._rerender_from_state()
         except Exception:
-          row_index = None
+          pass
 
-      try:
-        if row_index is not None and hasattr(table, 'update_cell_at'):
-          table.update_cell_at(row_index, 1, value)
-          table.update_cell_at(row_index, 2, '*' if is_changed else '')
-        else:
-          # Fallback for older/newer Textual APIs
-          try:
-            table.update_cell(key_name, 'value', value)
-            table.update_cell(key_name, 'changed', '*' if is_changed else '')
-          except Exception:
-            pass
-      except Exception:
-        pass
+        # Ensure hint reflects current state
+        try:
+          screen._update_hint(reveal=screen._revealed, saved=None)
+        except Exception:
+          pass
 
-      # Ensure hint reflects current state
+      # Apply UI changes after refresh to ensure the screen is mounted/active
       try:
-        screen._update_hint(reveal=screen._revealed, saved=None)
+        screen.call_after_refresh(_apply_to_table)
       except Exception:
-        pass
+        _apply_to_table()
 
     # Start with a few retries to survive screen transition timing
-    _retry(tries_left=6)
+    _retry(tries_left=10)
 
   def action_view_contents(self) -> None:
     if self.current_workspace_id is None:
